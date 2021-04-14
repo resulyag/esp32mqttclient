@@ -1,7 +1,3 @@
-/*
-This example uses FreeRTOS softwaretimers as there is no built-in Ticker library
-*/
-
 
 
 
@@ -11,6 +7,13 @@ int pirPin = 35;                   //Sensörü takacağımız pin
 int servoPin = 19;                 //Servoyu takacağımız pin
 int hareket;                      //Sensörden aldığımız veri
 Servo motor;                      //Servo motor değişkeni
+
+
+
+
+#define kirmizi_led 25
+#define yesil_led 26
+#define buzzer_Pin 27
 
 
 
@@ -35,11 +38,11 @@ const char *mqtt_client_password = "Resul81Yag";
 char *pub_topic = "esp-s";
 char *sub_topic = "esp-r";
 
-char *biri_geldi = "101";
-char *kapiyi_ac = "201";
-char *kapiyi_acma = "301";
-char *kapi_acildi = "401";
-char *led_yakildi = "501";
+char *biri_geldi = "101";    // esp32 pir sensörü hareket algıladığında esp_s topiğine 101 gönderecek
+char *kapiyi_ac = "201";     // mobil app, esp_s den 101 geldiğinde eğer isterse kapıyı aç demek için esp_r ye 201 gönderecek
+char *kapi_acildi = "202";   // mobil app den 201 gelip kapıyı açtığında esp_s ye kapı açıldı demek için 202 gönderecek
+char *alarm_cal = "301";     // mobil app, esp_s den 101 geldiğinde eğer isterse alarm çaldırmak için esp_r ye 301 gönderecek
+char *alarm_calindi = "302"; // mobil app den 301 gelip alarm çaldığında esp_s ye alarm çalındı demek için 302 gönderecek
 
 AsyncMqttClient mqttClient;
 TimerHandle_t mqttReconnectTimer;
@@ -82,15 +85,6 @@ void onMqttConnect(bool sessionPresent) {
   uint16_t packetIdSub = mqttClient.subscribe(sub_topic, 2);
   Serial.print("Subscribing at QoS 2, packetId: ");
   Serial.println(packetIdSub);
-//  publishMessage(biri_geldi);
-  //mqttClient.publish("esp-s", 0, true, "test 1");
-//  Serial.println("Publishing at QoS 0");
-  //uint16_t packetIdPub1 = mqttClient.publish("test/lol", 1, true, "test 2");
-  //Serial.print("Publishing at QoS 1, packetId: ");
-  //Serial.println(packetIdPub1);
-  //uint16_t packetIdPub2 = mqttClient.publish("test/lol", 2, true, "test 3");
-  //Serial.print("Publishing at QoS 2, packetId: ");
-  //Serial.println(packetIdPub2);
 }
 
 void onMqttDisconnect(AsyncMqttClientDisconnectReason reason) {
@@ -128,9 +122,19 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
       if(isEquals(payload, kapiyi_ac,3) ){
         Serial.println("msg: kapiyi_aç");
         motor.write(180);
-        publishMessage(kapi_acildi);
-      } else if(payload == kapiyi_acma){
-        Serial.println("msg: kapiyi_kapat");
+        digitalWrite(yesil_led, HIGH);  
+        digitalWrite(kirmizi_led, LOW);
+        digitalWrite (buzzer_Pin, LOW);
+        publishMessage(kapi_acildi);  // burada bu mesaj gittiğinde bildirimde ve veya normal gittiğinde text özelliği veya ayrıca bir ekrana mesaj olarak da olabilir '10 saniye sonra kapı otomatik kapanacaktır' mesajı da gitmeli
+        //delay(20000);
+        //motor.write(92);       // burda hata veriyor     kendine reset atıyor
+      } else if(isEquals(payload, alarm_cal,3)){
+        Serial.println("msg: alarm_cal");
+        digitalWrite(yesil_led, LOW);
+        digitalWrite(kirmizi_led, HIGH);
+        digitalWrite (buzzer_Pin, HIGH);
+        // burada kırmızı led yanacak ve buzzer ötecek
+        publishMessage(alarm_calindi);
       } else {
         Serial.println("başka mesaj");
       }
@@ -138,25 +142,6 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
     } else {
       Serial.println("topic yanlış");
     }
-  /*
-  Serial.println("Publish received.");
-  Serial.print("  topic: ");
-  Serial.println(topic);
-  Serial.print("  qos: ");
-  Serial.println(properties.qos);
-  Serial.print("  dup: ");
-  Serial.println(properties.dup);
-  Serial.print("  retain: ");
-  Serial.println(properties.retain);
-  Serial.print("  len: ");
-  Serial.println(len);
-  Serial.print("  index: ");
-  Serial.println(index);
-  Serial.print("  total: ");
-  Serial.println(total);
-  Serial.print("  payload: ");
-  Serial.println(payload);
-  */
 }
 
 void onMqttPublish(uint16_t packetId) {
@@ -171,9 +156,16 @@ void setup() {
   Serial.println();
 
 
-  motor.attach(servoPin);         //Servomuzu 9. pin ile ilişkilendiriyoruz.
+  motor.attach(servoPin);         //Servomuzu 19. pin ile ilişkilendiriyoruz.
+  motor.write(90);
   pinMode(pirPin, INPUT);         //Sensör pinimizi giriş olarak ayarlyoruz.
 
+  pinMode(kirmizi_led,OUTPUT);
+  pinMode(yesil_led,OUTPUT);  
+  pinMode(buzzer_Pin,OUTPUT);
+
+
+  
   
 
   mqttReconnectTimer = xTimerCreate("mqttTimer", pdMS_TO_TICKS(2000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(connectToMqtt));
@@ -195,8 +187,10 @@ void setup() {
 
 void publishMessage(char* mesaj){
   uint16_t packetIdPub2 = mqttClient.publish(pub_topic, 0, true, mesaj);
-  Serial.print("Gönderilen mesaj sonucu:");
+  Serial.print("Paket Id:");
   Serial.println(packetIdPub2);
+  Serial.print("Gönderilen mesaj sonucu:");
+  Serial.println(mesaj);
   }
 
 
@@ -204,57 +198,10 @@ void subscribeTopic(char* mesaj){
   uint16_t packetIdSub = mqttClient.subscribe(sub_topic, 2);
   Serial.print("Subscribing at QoS 2, packetId: ");
   Serial.println(packetIdSub);
-}
-
-
-
-
-
-
-void callback(char* sub_topic, byte* payload, unsigned int length) {
-
-  String response;
-  
-  Serial.print("Message arrived in topic: ");
+  Serial.print("Subscribe olunan topic : ");
   Serial.println(sub_topic);
- 
-  Serial.print("Message:");
-  for (int i = 0; i < length; i++) {
-    response += (char)payload[i];
-    Serial.print((char)payload[i]);
-  }
-
- 
-  Serial.println();
-  Serial.println("-----------------------");
-  
-  if(response == "201")  // Turn the servo
-  {
-    motor.write(180);
-    /*
-    delay(350);
-    motor.write(1);
-    delay(350);
-    motor.write(180);
-    delay(350);
-    motor.write(1);
-    delay(350);
-    motor.write(180);
-    delay(350);
-    motor.write(1);
-    delay(350);
-    motor.write(90);
-    */
-    mqttClient.publish(pub_topic, 0, true, kapi_acildi);
-  }
-  else if(response == "301")  // Turn the light off
-  {
-  //Serial.print("Gelen mesaj : ");
-  //Serial.println(response);
-    mqttClient.publish(pub_topic, 0, true, led_yakildi);
-  //client.publish(STATE_TOPIC,"off");
-  }
 }
+
 
 
 
@@ -269,57 +216,11 @@ bool isEquals(char* first, char* sec, int t) { //eşit mi
 
 
 
-
-
-/*
-
-void callback(char* sub_topic, char* kapiyi_ac) {
-  String response;
- unsigned int length;
-  for (int i = 0; i < length; i++) {
-    response += (char)kapiyi_ac[i];
-  }
-  Serial.print("Message arrived [");
-  Serial.print(sub_topic);
-  Serial.print("] ");
-  Serial.println(response);
-  if(response == "201")  // Turn the light on
-  {
-    motor.write(180);
-    delay(350);
-    motor.write(1);
-    delay(350);
-    motor.write(180);
-    delay(350);
-    motor.write(1);
-    delay(350);
-    motor.write(180);
-    delay(350);
-    motor.write(1);
-    delay(350);
-    motor.write(90);
-    mqttClient.publish(pub_topic, 0, true, kapi_acildi);
-  }
-  else if(response == "301")  // Turn the light off
-  {
-  //Serial.print("Gelen mesaj : ");
-  //Serial.println(response);
-    mqttClient.publish(pub_topic, 0, true, led_yakildi);
-  //client.publish(STATE_TOPIC,"off");
-  }
-}
-
-*/
-
-
-
 void loop() {
   hareket = digitalRead(pirPin);  //Sensörden okuma yapıyoruz.
   
   if(hareket == HIGH){            //Hareketlilik var ise içerideki komutlar uygulanır.
     publishMessage(biri_geldi);
-    delay(3000);
-  }
-  else{                           
+    delay(7000);
   }
 }
