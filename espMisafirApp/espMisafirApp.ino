@@ -16,7 +16,9 @@ Servo motor;                      //Servo motor değişkeni
 #define buzzer_Pin 27
 
 
-
+bool islem = false;
+unsigned long time_now =0;
+int period = 10000;
 
 
 #include <WiFi.h>
@@ -43,6 +45,11 @@ char *kapiyi_ac = "201";     // mobil app, esp_s den 101 geldiğinde eğer ister
 char *kapi_acildi = "202";   // mobil app den 201 gelip kapıyı açtığında esp_s ye kapı açıldı demek için 202 gönderecek
 char *alarm_cal = "301";     // mobil app, esp_s den 101 geldiğinde eğer isterse alarm çaldırmak için esp_r ye 301 gönderecek
 char *alarm_calindi = "302"; // mobil app den 301 gelip alarm çaldığında esp_s ye alarm çalındı demek için 302 gönderecek
+
+char *durumlari_sonlandir = "102"; // bunu bütün durumlar için her şeyi en baştaki stabil duruma geri döndermek için yani sıfırlamak için kullanacağız daha kodlanmadı
+                                  // her başlayan programdan 10 saniye sonra program sonlanması için bu mesaj gönderilecek
+                                  //ayrıca arduino tarafında da kapıyı aç dediğinde yanan yeşil led açık kalıyor ve alarm çal dediğinde yanan led ve öten buzzer açık kalıyor
+char *durumlar_sonlandirildi = "103";  //arduino tarafında da ledlerin ve buzzerın durdurulması için her şeyin başa dönmesi için <ndroid tarafından 102ye karşılık gelen mesaj 
 
 AsyncMqttClient mqttClient;
 TimerHandle_t mqttReconnectTimer;
@@ -120,22 +127,50 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
     Serial.println("topic doğru");
 
       if(isEquals(payload, kapiyi_ac,3) ){
+       
+        time_now = millis();
+        islem = true;
+
+
+
+        
         Serial.println("msg: kapiyi_aç");
         motor.write(180);
         digitalWrite(yesil_led, HIGH);  
         digitalWrite(kirmizi_led, LOW);
         digitalWrite (buzzer_Pin, LOW);
         publishMessage(kapi_acildi);  // burada bu mesaj gittiğinde bildirimde ve veya normal gittiğinde text özelliği veya ayrıca bir ekrana mesaj olarak da olabilir '10 saniye sonra kapı otomatik kapanacaktır' mesajı da gitmeli
+        Serial.println("msg: kapi açıldı");
+
+        //delay(10000);
+        //publishMessage(durumlari_sonlandir);
         //delay(20000);
         //motor.write(92);       // burda hata veriyor     kendine reset atıyor
       } else if(isEquals(payload, alarm_cal,3)){
+
+
+        time_now = millis();
+        islem = true;
+
+
+
+
+        
         Serial.println("msg: alarm_cal");
         digitalWrite(yesil_led, LOW);
         digitalWrite(kirmizi_led, HIGH);
         digitalWrite (buzzer_Pin, HIGH);
         // burada kırmızı led yanacak ve buzzer ötecek
         publishMessage(alarm_calindi);
-      } else {
+        //delay(10000);       buraya delay komutu olmuyor çünkü delay bekliyor ve program hata alıyor, buraya millis() fonksiyonu kullannılacak ve şimdiki zamandan öncek zaman çıkartılacak
+        //publishMessage(durumlari_sonlandir);
+      } else if(isEquals(payload, durumlar_sonlandirildi,3)){
+        Serial.println("msg: durumlar sonlandırıldı");
+        digitalWrite(yesil_led, LOW);
+        digitalWrite(kirmizi_led, LOW);
+        digitalWrite (buzzer_Pin, LOW);
+        motor.write(90);
+      }else {
         Serial.println("başka mesaj");
       }
     
@@ -223,4 +258,14 @@ void loop() {
     publishMessage(biri_geldi);
     delay(7000);
   }
+  
+  if(islem){
+    Serial.println("İşlem if inin içine girildi");
+    if(millis() > (time_now + period)){
+      Serial.println("İşlem if inin içindeki mesaj gönderme if inin içine girildi ve mesaj gönderildi  ve işlem tamamlandı");
+      publishMessage(durumlari_sonlandir);
+      islem=false;
+    }
+  }
+
 }
